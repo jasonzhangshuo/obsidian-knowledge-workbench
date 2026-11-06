@@ -1,0 +1,34 @@
+# Historical prototype; not a runnable entrypoint. See ../README.md.
+# Machine-specific home prefix replaced with <LOCAL_HOME>.
+from pathlib import Path
+import json,shutil,datetime,re,hashlib
+r=Path(__file__).resolve().parent;e=r/'evidence';d=r.parents[1]/'outputs/入菩萨行论-整书Wiki验证';d.mkdir(exist_ok=True)
+questions={x['id']:x['question'] for x in json.loads((e/'retrieval-questions.json').read_text())}
+answers=json.loads((e/'query-final-answers.json').read_text())['answers'];audit=json.loads((e/'final-query-audit.json').read_text());assert audit['valid_quoted_excerpts']==12 and not audit['quote_failures']
+lines=['# 独立问答验证','','模型：GPT-6 Luna High。首次查询使用新的只读 Codex 会话，没有编译聊天上下文，也未读取预期答案。','', '首轮8题中7题的回答与引文符合检查要求；T04解释方向有依据，但2条引文拼接或改写，首轮不通过。之后仅指定原检索页做引文重测，现2条原句匹配。以下保留最终8题；初稿、失败检查和重测原始记录均在 evidence/。','', '最终12条引文均逐字匹配所标物理页（忽略排版空白）。这不代表全部知识页已做逐句语义审校，也不代表默认中文检索或 MCP 已通过。','', '默认元数据检索直接接收这8个中文问题时均无候选结果；本次回答依靠知识页全文搜索与原文回查补足。','']
+for a in answers:
+ lines += ['## '+a['id']+'：'+questions[a['id']],'']
+ body=re.split(r'\n\n原文摘录一',a['answer'])[0]
+ lines += [body,'']
+ if a['id']=='T04':lines+=['本题首轮引文未通过；指定原页343、344回查后的重测版本。','']
+ for q in a['evidence']:lines += ['> '+q['quote'],'',f'出处：[PDF物理页{q["pdf_page"]}](source/page-{q["pdf_page"]:03}.txt)','']
+ lines+=['知识页：'+ '、'.join(f'[{Path(p).stem}](wiki/{p})' for p in a['wiki_pages']),'']
+(d/'独立问答验证.md').write_text('\n'.join(lines)+'\n')
+report=d/'验证报告.md';s=report.read_text()
+s=s.replace('**状态：处理中，尚非最终验收。**逐课预览和核验记录持续保存，完成状态见《处理进度》。','**状态：本书隔离编译与查询验证已完成，知识内容仍为 draft。**已保存60课、7个跨课概念页、1个全书总览，共68个知识页；另有覆盖表、问答、来源和核验记录。')
+s=s.replace('本次每页均标为 draft。','本次每页均标为 draft。')
+s=s.replace('交付前会统一为同一结构','已统一为同一结构')
+s=s.replace('部分证据点只是带页码的概括，未逐条附上长原句。引文检查只覆盖显式摘录，不能把其通过率当成全部摘要的语义正确率。','初稿部分证据点缺少直接摘录，后续已补充。补充阶段仍发现数字、破折号被删及摘取反方设问等问题，已按上下文修正。最终逐课页证据中202处至少四字的显式摘录与所标页匹配；此检查只验证摘录和页码，不能代表全部摘要的语义正确率。')
+s=s.replace('## 待完成的验收\n\n- 全部 60 课的实际全文读取记录、课页与覆盖表。\n- 跨课概念页、书籍总览、知识目录。\n- 引文核验、链接和来源登记检查。\n- 新查询会话的 8 项测试，包括跨课问答、后部内容、原句回查和资料缺失时不编造。\n- 最终状态与局限说明。','''## 最终验收结果\n\n| 检查 | 结果 |\n|---|---|\n| 指定PDF提取 | 457/457页有文字，使用已有文字层，无OCR |\n| 模型实际完整读取 | 60/60课，工具返回全文与分课源文件匹配 |\n| 知识文件 | 60课、7个跨课概念、1个总览，共68页；另有目录和覆盖表 |\n| 页码范围 | 每课至少2组证据点，所标页在该课范围内 |\n| 逐课直接摘录 | 202处至少四字的摘录，全部在所标页找到；已含本轮修正 |\n| 链接与元数据 | 70份预览Markdown无断链，知识页维持draft，来源统一指向本PDF |\n| 独立问答首轮 | 7/8题符合回答及引文要求，T04的2条引文未通过 |\n| T04引文重测 | 指定原页343、344再读，2条连续原句通过 |\n| 最终问答引文 | 12/12条匹配所标物理页；初稿失败完整保留 |\n| 缺失资料 | 未捏造梵文手稿原句、编号与馆藏号 |\n| 中文默认检索 | 直接提交8个完整中文问题均无候选；需全文搜索兜底 |\n| 原文完整性与复用 | 原PDF哈希未变，457页与60课文本哈希未变；来源缓存再次检查为unchanged |\n| MCP / Hermes | 本次未部署或接通，不能计为端到端验收通过 |\n\n逐字检查忽略排版空格、换行，不忽略文字、数字或标点差异。首轮的T04定位到343、344页是有效替代出处；原基准没有列全所有可能出处，已单独记录原文核对后的接受理由。其真实失败是引文拼接/改写，并非解释方向或那两页本身无效。\n\n跨课概念复查还修正了一处结构表述：菩提心防护包括不放逸、护正知、安忍三品；概念页只讨论前两品时，不能写成全书防护只有两个层面。修改前文件和所有修正记录均已保留。按课切分可能让上一课尾部出现下一页标记而无本课正文，这是正常边界记录，不能据此称原PDF缺页或缺文。\n\n## 这次证明了什么\n\nCodex确实能应用Wiki规则，以分课和进度记录方式处理这份完整书籍，形成持久知识页；新的会话可利用已存内容及原文回查回答前、中、后部与跨课问题。整个过程不依赖Claudian提供查询入口。\n\n本次完成依赖分课、进度落盘、结构归一化、出处检查和修正；这些检查由此次工作流程补充。正式长期运行还需要把这些步骤固定下来。一次书籍测试也没有证明多书冲突处理、所有细节无遗漏、扫描PDF、复杂图表或任意换一种说法提问的检索效果。\n\n语义检查限于跨课概念浏览和8项代表性问题；所有知识页均维持草稿，未完成全部归纳逐句审校。实际MCP服务需要将中文检索、原文兜底、来源读取和引文核查一起纳入，随后再分别验收Codex和Hermes。\n\n## 实测时间与长期使用\n\n本次Luna High首次完整编译约48分钟，8题独立首测约2分48秒；这些时间包含客户端读取规则、工具调用及落盘，不是单次模型纯生成速度，也不保证每本书相同。此前本地千问27B的一课样本约4分53秒，任务设置不同，未做严格质量或费用对比。\n\n缓存能识别同一PDF未变化，后续无需为相同原文件重复编译。已有知识页便于先找主题，再读相关原文；全文原稿始终保留。后续可用轻量程序负责分课、落盘和校验，让模型集中生成结构化内容，降低长会话的格式漂移和反复工具编排成本。\n\n模型累计token统计保存在 evidence/run-metadata.json，包含大量缓存读取，不能与文档长度或实际费用等同。本次未核算账号费用。''')
+report.write_text(s)
+local=r.parents[1]/'outputs/本地千问-Wiki整理样本与验证.md'
+if local.exists():shutil.copy2(local,d/'本地千问对照样本.md')
+# Save prompts for reproducibility without exporting local agent configuration.
+prompts=e/'run-prompts';prompts.mkdir(exist_ok=True)
+for name in ['compile-prompt.txt','query-prompt.txt','query-t04-retest-prompt.txt']:
+ shutil.copy2(r/name,prompts/name)
+meta=json.loads((e/'run-metadata.json').read_text());rows=[json.loads(l) for l in (e/'query-t04-retest-events.jsonl').read_text().splitlines()];turn=[x for x in rows if x.get('type')=='turn.completed'];meta['t04_retest_usage']=turn[-1].get('usage');meta['final_status']='complete_isolated_preview_with_review';(e/'run-metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2))
+(d/'README.md').write_text('''# 《入菩萨行论》整书 Wiki 验证\n\n**已完整保存：457页原文提取、60课整理、7个跨课概念、1个全书总览，以及问答与核验记录。**均为隔离预览，未写正式 Obsidian Vault，未接通知识库 MCP / Hermes。\n\n## 从这里阅读\n\n- [全书预览目录](wiki/preview-catalog.md)：逐课与概念入口。\n- [全书总览](wiki/references/book-overview.md)：十品、六十课和修学次第。\n- [独立问答验证](独立问答验证.md)：8个问题、回答及原文页。\n- [验证报告](验证报告.md)：实际结论、发现的问题、框架关系和后续实施顺序。\n- [逐课覆盖与保存进度](处理进度.md)：60课逐项链接。\n- [本地千问对照样本](本地千问对照样本.md)：此前一课的本地试验。\n\n## 保存内容\n\n- source/：原始逐页提取文字、按课全文和整本文字。\n- wiki/：68个知识页、目录、覆盖表和来源缓存。\n- evidence/：源文件哈希、全课进度、调用记录、修正前版本、结构和引文检查、初测及重测结果、运行指令。\n\n所有知识页为 draft。初测7/8题通过；T04两条引文失败后回查原页，最终12条问答引文全部匹配。默认中文问题检索仍有漏查，本次靠全文检索与原文回查补足；详情见报告。\n\n原PDF保持原位，压缩包不重复包含原PDF文件，但包含其全文提取及逐页文字。\n\n原文件：<LOCAL_HOME>/Documents/佛法修学/materials/入菩萨行论/lesson-011/source/lecture-full.pdf\n\nSHA256：7aaea6dc3c8845100465c24e26e7f92a0d22ebbe7200f6badeba4b96e1d5b3c2\n''')
+status={'date':'2026-11-06','model':'gpt-6-luna','reasoning_effort':'high','status':'complete_isolated_preview_with_review','pdf_pages':457,'lessons':60,'knowledge_pages':68,'cross_lesson_concepts':7,'draft':True,'initial_query_passes':7,'query_cases':8,'t04_retested':True,'final_query_quotes_verified':12,'literal_lesson_excerpts_verified':202,'production_vault_written':False,'mcp_deployed':False,'hermes_knowledge_access_tested':False}
+(d/'validation-status.json').write_text(json.dumps(status,ensure_ascii=False,indent=2))
+print('已生成最终阅读入口、报告、8题验证与运行状态。')

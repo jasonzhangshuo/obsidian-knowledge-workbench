@@ -1,0 +1,181 @@
+# Historical prototype; not a runnable entrypoint. See ../README.md.
+# Machine-specific home prefix replaced with <LOCAL_HOME>.
+from pathlib import Path
+from zoneinfo import ZoneInfo
+import json,re,hashlib,shutil,os,sys,zipfile,subprocess,importlib
+W=Path(__file__).resolve().parent
+BASE=W.parents[1]
+SRC=BASE/'outputs/入菩萨行论-整书Wiki验证'
+VAULT=Path('<LOCAL_HOME>/Library/Mobile Documents/iCloud~md~obsidian/Documents/我的重启人生技能学习仓库')
+BOOK=Path('references/书籍/入菩萨行论-济群讲记')
+RAW=Path('_raw/_archived/书籍/入菩萨行论-济群讲记')
+HUB=BOOK/'入菩萨行论-济群讲记.md'
+RULE=Path('90-系统/书籍知识库使用说明.md')
+PROJECT=Path('projects/成长实践IP/成长实践IP.md')
+PDF=Path('<LOCAL_HOME>/Documents/佛法修学/materials/入菩萨行论/lesson-011/source/lecture-full.pdf')
+HASH='7aaea6dc3c8845100465c24e26e7f92a0d22ebbe7200f6badeba4b96e1d5b3c2'
+PAY=W/'payload'
+from datetime import datetime
+STAMP=datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(timespec='seconds')
+def digest(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+def slug(p):return str(p.with_suffix(''))
+def link(p,label=None,anchor=''):
+ return '[['+slug(p) + anchor+ ('|'+label if label else '')+']]'
+def pdf_link(page=None,label=None):
+ return '[['+str(RAW/'lecture-full.pdf')+(f'#page={page}' if page else '')+('|'+label if label else '')+']]'
+def scalar(text,key):
+ m=re.search(r'^'+re.escape(key)+r':[^\S\n]*(.*)$',text,re.M)
+ if not m:return ''
+ value=m[1]
+ if value in ['>-','>','|-','|']:
+  rest=text[m.end():];lines=[]
+  for l in rest.splitlines()[1:]:
+   if not l.startswith((' ','\t')):break
+   lines.append(l.strip())
+  return ' '.join(lines)
+ if value.startswith('"'):
+  try:return json.loads(value)
+  except:pass
+ return value.strip("'\"")
+def front(title,category,summary,keywords=None,aliases=None):
+ fields={'title':title,'category':category,'tags':['方向/成长实践','主题/佛法','主题/读书','来源/书籍','visibility/internal'],'aliases':aliases or [],'keywords':keywords or [],'sources':[str(RAW/'lecture-full.pdf')],'source_pdf':pdf_link(),'source_sha256':HASH,'summary':summary,'lifecycle':'draft','lifecycle_changed':STAMP[:10],'tier':'core' if category=='concepts' else 'supporting','created':STAMP,'updated':STAMP}
+ return '---\n'+'\n'.join(k+': '+json.dumps(v,ensure_ascii=False) for k,v in fields.items())+'\n---\n\n'
+# Map stable original file identities to book-scoped Obsidian identities.
+mapping={};titles={};summaries={}
+for p in (SRC/'wiki').rglob('*.md'):
+ rel=p.relative_to(SRC/'wiki');txt=p.read_text();title=scalar(txt,'title') or p.stem
+ if re.fullmatch(r'lesson-\d{3}',p.stem):
+  n=int(p.stem[-3:]);topic=re.split('[：:]',title,maxsplit=1)[-1]
+  dest=BOOK/'章节'/f'第{n:03}课-{topic}.md'
+ elif rel.parts[0]=='concepts':dest=BOOK/'概念'/p.name
+ elif p.name=='book-overview.md':dest=HUB
+ elif p.name=='coverage.md':dest=BOOK/'验证记录/全书覆盖表.md'
+ elif p.name=='preview-catalog.md':continue
+ else:continue
+ mapping[str(rel)]=dest;titles[str(rel)]=title;summaries[str(rel)]=scalar(txt,'summary')
+reports={'验证报告.md':'验证记录/整书验证报告.md','独立问答验证.md':'验证记录/独立问答验证.md','本地千问对照样本.md':'验证记录/本地千问对照样本.md'}
+stem_map={Path(k).stem:v for k,v in mapping.items()}
+lessons={x['lesson']:x for x in json.loads((SRC/'evidence/lessons.json').read_text())}
+def resolve_old(raw,old_rel=None):
+ t=raw.split('|')[0].split('#')[0].removesuffix('.md')
+ if t in mapping:return mapping[t]
+ if Path(t).name in stem_map:return stem_map[Path(t).name]
+ return None
+def convert(text,old_rel=None):
+ # Existing compiled links are all to this isolated book. Qualify them to avoid cross-book collisions.
+ def wiki(m):
+  raw=m[1];dest=resolve_old(raw,old_rel)
+  if not dest:return m[0]
+  label=raw.split('|',1)[1] if '|' in raw else (f'第{int(Path(raw.split("#")[0]).name[-3:])}课' if re.fullmatch(r'lesson-\d{3}',Path(raw.split('#')[0]).name) else Path(raw.split('#')[0]).name)
+  return link(dest,label)
+ text=re.sub(r'\[\[([^\]]+)\]\]',wiki,text)
+ def md(m):
+  label,target=m[1],m[2].strip('<>')
+  if re.match(r'^[a-zA-Z]+:',target) or target.startswith('#'):return m[0]
+  page=re.search(r'page-(\d{3})\.txt',target)
+  if page:return pdf_link(int(page[1]),label)
+  lesson=re.search(r'(?:source/)?lessons/lesson-(\d{3})\.md',target)
+  if lesson:return pdf_link(lessons[int(lesson[1])]['start_pdf_page'],label+'（原书）')
+  if 'full-layout.txt' in target:return pdf_link(label='原书全文')
+  t=target.removeprefix('wiki/')
+  dest=mapping.get(t)
+  if not dest:
+   norm=str(Path(os.path.normpath(str(Path(old_rel).parent/target)))) if old_rel else target
+   dest=mapping.get(norm) or resolve_old(target,old_rel)
+  if dest:return link(dest,label)
+  if Path(target).name in ['lessons.json','extraction.json','compile-progress.json','compilation-result.json']:
+   return '[['+str(RAW/'验证全记录.zip')+'|'+label+'（验证归档）]]'
+  return m[0]
+ return re.sub(r'\[([^\]]+)\]\(([^)]+)\)',md,text)
+def put(rel,text):
+ p=PAY/rel;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text)
+def related_concept(n):
+ name=('七支供与忏悔' if 6<=n<=9 else '护持菩提心与正知' if 12<=n<=22 else '安忍与缘起观' if 23<=n<=30 else '自他相换与平等除苦' if 35<=n<=43 else '空性、二谛与大悲' if 44<=n<=57 else '回向与利他方向' if n>=58 else '菩提心与愿行')
+ return BOOK/'概念'/(name+'.md')
+if '--prepare' in sys.argv:
+ assert digest(PDF)==HASH
+ for key,dest in mapping.items():
+  txt=(SRC/'wiki'/key).read_text();hasfront=txt.startswith('---\n');body=txt.split('---',2)[2].lstrip() if hasfront else txt
+  title=titles[key];category='concepts' if '/概念/' in str(dest) else 'references'
+  aliases=[]
+  if key.startswith('references/lesson-'):
+   n=int(Path(key).stem[-3:]);title='入菩萨行论 · '+title;aliases=[f'入菩萨行论 第{n}课',f'入行论 第{n}课']
+  elif dest==HUB:title='《入菩萨行论》讲记知识库';aliases=['入菩萨行论讲记','入行论讲记','济群 入菩萨行论']
+  else:aliases=['入菩萨行论 '+title]
+  body=convert(body,key)
+  if hasfront and dest!=HUB:
+   body='> [!abstract] 整理说明\n> 以下为依据原书的AI归纳，直接引文另列并附物理页。^[inferred]\n\n'+body
+  # Distinguish AI synthesis from source quotations per Vault policy.
+  body=re.sub(r'(\*\*整理者归纳：\*\*[^\n]+)',lambda m:m[1]+(' ^[inferred]' if '^[inferred]' not in m[1] else ''),body)
+  if hasfront:
+   meta=front(title,category,summaries[key] or '入菩萨行论讲记的结构化资料与来源回查。',aliases=aliases)
+   if dest==HUB:
+    nav='''> [!info] 已正式存入 Obsidian\n> 2026-11-06：已保存60课、7个跨课概念和全书总览，原书457页。知识内容维持草稿状态，出处已核验；MCP尚未接通。\n\n'''
+    nav+='## 阅读入口\n\n- '+pdf_link(label='打开完整原书PDF')+'\n- '+link(BOOK/'验证记录/独立问答验证.md','8题问答与原文出处')+'\n- '+link(BOOK/'验证记录/整书验证报告.md','整书验证结论与局限')+'\n- '+link(RULE,'书籍知识库的长期使用约定')+'\n- [['+str(RAW/'验证全记录.zip')+'|全部分析与验证原始记录（ZIP）]]\n\n## 跨课概念\n\n'
+    for rel,p in mapping.items():
+     if rel.startswith('concepts/'):nav+='- '+link(p,p.stem)+'\n'
+    body=nav+'\n'+body
+   body+='\n## 知识库导航\n\n- '+link(HUB,'本书知识库总览')+'\n'
+   if re.fullmatch(r'lesson-\d{3}',Path(key).stem):body+='- '+link(related_concept(n),'相关概念')+'\n'
+   body+='- '+link(PROJECT,'成长实践 IP')+'\n'
+   # Keep Sources as the final section while retaining a source link for every page.
+   if '\n## Sources\n' in body:
+    a,b=body.split('\n## Sources\n',1)
+    if '\n## 知识库导航\n' in b:
+     sources,nav=b.split('\n## 知识库导航\n',1);body=a+'\n## 知识库导航\n'+nav+'\n## Sources\n'+sources
+   else:body+='\n## Sources\n\n- '+pdf_link(label='原书PDF')+'\n'
+   put(dest,meta+body)
+  else:put(dest,'---\ntitle: '+json.dumps('入菩萨行论全书覆盖表',ensure_ascii=False)+'\ncategory: references\ntags: [主题/佛法, 来源/书籍, visibility/internal]\n---\n\n'+body+'\n\n'+link(HUB,'返回本书总览')+'\n- '+link(PROJECT,'成长实践 IP')+'\n- '+link(BOOK/'概念/菩提心与愿行.md','本书概念导航')+'\n')
+ for name,rel in reports.items():
+  txt=(SRC/name).read_text();txt=convert(txt)
+  note='> [!info] 历史验证记录\n> 下文记录正式入库前的隔离测试。本书已于2026-11-06正式保存到当前Vault；文中“尚未写入Vault”指当时状态。知识库MCP尚未接通。\n\n'
+  put(BOOK/rel,'---\ntitle: '+json.dumps('入菩萨行论 · '+Path(rel).stem,ensure_ascii=False)+'\ncategory: references\ntags: [主题/佛法, 主题/读书, visibility/internal]\n---\n\n'+note+txt+'\n\n'+link(HUB,'返回本书总览')+'\n- '+link(PROJECT,'成长实践 IP')+'\n- '+link(BOOK/'概念/菩提心与愿行.md','本书概念导航')+'\n')
+ raw=PAY/RAW;raw.mkdir(parents=True,exist_ok=True);shutil.copy2(PDF,raw/'lecture-full.pdf');shutil.copy2(BASE/'outputs/入菩萨行论-整书Wiki验证.zip',raw/'验证全记录.zip')
+ # Preserve full page and lesson text for later local retrieval without adding hundreds of raw Markdown nodes.
+ for p in (SRC/'source').rglob('*'):
+  if not p.is_file():continue
+  rel=p.relative_to(SRC/'source');dest=raw/'text'/rel
+  if dest.suffix=='.md':dest=dest.with_suffix('.txt')
+  dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(p,dest)
+ workflow='''---\ntitle: 书籍知识库使用说明\ncategory: system\ntags: [system/workflow, 主题/读书, 主题/知识应用, visibility/internal]\nsources: [user-approved-workflow]\nlifecycle: draft\n---\n\n# 书籍与资料的长期归属\n\n用户已于2026-11-06明确确认：在本书籍/资料分析工作流中，结构化成果应直接保存在本Obsidian Vault，不能仅放在Codex对话目录。分析结束后保存原文、知识页、概念关联、出处与验证记录；用户明确要求只预览时按当次要求执行。正式存储与内容审校状态分开，草稿也可以正式保存。\n\n## 分工\n\n- **Obsidian**：长期知识库与唯一维护的正式内容源。每本书使用独立目录，避免课号与概念同名冲突。\n- **Claudian + Wiki Skills**：日常整理、更新与回查入口，维护这份Vault中的文件。Skill保存流程规则，知识正文保存在Vault。\n- **独立MCP**：后续提供知识页检索、中文全文检索、原文按书籍/页码回查；本次尚未部署。\n- **Codex / Hermes**：后续通过MCP使用同一知识库。Codex可在明确开发或验证任务中辅助处理，但成果仍应回存Vault，不维护另一套长期书库。\n\n## 当前书库结构\n\n- `references/书籍/<书名与版本>/`：书籍总览、章节、概念及可阅读的验证记录。\n- `_raw/_archived/书籍/<书名与版本>/`：不可改写的原书副本、原文提取和完整分析归档。\n- `index.md / hot.md / log.md / .manifest.json`：入口、当前活动、操作与来源登记。\n\n## 整理与引用\n\n1. 先保留原书和源文件校验值，确认页码与完整范围，再分课/分章读取。\n2. 区分作者原文、用户判断、AI归纳；AI推断标记 `^[inferred]`，不确定内容标记 `^[ambiguous]`。\n3. 知识页用Vault完整路径的双向链接；出处链接到本库原PDF及物理页。\n4. 显式引文必须与实际原文匹配，不能拼接、改写标点或误引反方设问。\n5. 无出处的信息明确标缺失；保持草稿状态，直到相应内容确实完成审校。\n6. 全文检索限定当前书籍及其原文目录；不扫描或处理 `_private/Morning Pages/`。现有默认中文检索有漏查，须采用书内全文检索和原文兜底。\n\n## 本次来源与验证边界\n\n《入菩萨行论》本次已有成果由Codex客户端的GPT-6 Luna High按Wiki规则整理，并经过结构及引文核验后入库。没有为了更换入口而让Claudian再跑一遍整本书。Claudian的整书自动整理流程以及Codex/Hermes通过知识MCP调用，仍需分别验证。\n\n## 书籍入口\n\n- '''+link(HUB,'《入菩萨行论》济群法师讲记：60课、7个概念与原文回查')+'\n'
+ put(RULE,workflow)
+ plan={'book_root':str(BOOK),'source_root':str(RAW),'hub':str(HUB),'workflow':str(RULE),'files':[{ 'path':str(p.relative_to(PAY)),'sha256':digest(p),'bytes':p.stat().st_size} for p in PAY.rglob('*') if p.is_file()],'mapping':{k:str(v) for k,v in mapping.items()},'knowledge_pages':68,'source_hash':HASH}
+ (W/'plan.json').write_text(json.dumps(plan,ensure_ascii=False,indent=2));print(json.dumps({'prepared_files':len(plan['files']),'knowledge_pages':68,'hub':str(HUB)},ensure_ascii=False));sys.exit(0)
+if '--apply' in sys.argv:
+ plan=json.loads((W/'plan.json').read_text());assert not (VAULT/BOOK).exists();assert not (VAULT/RAW).exists();assert not (VAULT/RULE).exists()
+ # Validate the local payload and all intended new file paths before touching the Vault.
+ for x in plan['files']:
+  rel=Path(x['path']);assert not rel.is_absolute() and '..' not in rel.parts;assert digest(PAY/rel)==x['sha256'];assert not (VAULT/rel).exists(),str(rel)
+ sys.path.insert(0,'<LOCAL_HOME>/.local/share/uv/tools/obsidian-wiki/lib/python3.12/site-packages')
+ from obsidian_wiki import memory as mem
+ backup=VAULT/'_archives'/('入菩萨行论入库前-'+datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y%m%d-%H%M%S')+'.zip');backup.parent.mkdir(exist_ok=True)
+ originals={};modified={}
+ with mem.memory_lock(VAULT):
+  for rel in ['index.md','hot.md','log.md','.manifest.json','AGENTS.md',str(PROJECT)]:
+   p=VAULT/rel;originals[rel]=p.read_bytes()
+  with zipfile.ZipFile(backup,'w',zipfile.ZIP_DEFLATED) as z:
+   for rel,b in originals.items():z.writestr(rel,b)
+  # Create source snapshots first, then compiled notes.
+  for x in sorted(plan['files'],key=lambda x:not x['path'].startswith('_raw/')):
+   rel=Path(x['path']);p=VAULT/rel;p.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(PAY/rel,p)
+  index=originals['index.md'].decode();insertions={
+   'References':['- '+link(HUB)+' — 已正式保存全书60课、7个跨课概念、457页原书及出处核验；按书籍目录维护。 ( #主题/佛法 #主题/读书 #来源/书籍 #visibility/internal)'],
+   'Concepts':['- '+link(p)+' — 《入菩萨行论》讲记的跨课概念与页码出处。 ( #主题/佛法 #来源/书籍 #visibility/internal)' for k,p in mapping.items() if k.startswith('concepts/')],
+   'System':['- '+link(RULE)+' — 用户确认以Obsidian为正式内容源；Claudian整理维护，后续MCP供Codex/Hermes调用。 ( #system/workflow #主题/读书)']}
+  for heading,lines in insertions.items():
+   marker='## '+heading+'\n';assert marker in index
+   index=index.replace(marker,marker+'\n'+'\n'.join(lines)+'\n',1)
+  mem.atomic_write(VAULT/'index.md',index);modified['index.md']=digest(VAULT/'index.md')
+  hot=originals['hot.md'].decode();entry=f'- [{STAMP}] INGEST — '+link(HUB,'入菩萨行论')+'：已正式保存60课、7概念、原PDF与核验；后续Claudian整理、MCP供Codex/Hermes调用（尚未接通）。规则见'+link(RULE)+'。\n\n'
+  hot=hot.replace('# Hot Cache\n\n','# Hot Cache\n\n'+entry,1);hot=re.sub(r'^updated:.*$',f'updated: {STAMP}',hot,count=1,flags=re.M);mem.atomic_write(VAULT/'hot.md',hot);modified['hot.md']=digest(VAULT/'hot.md')
+  agents=originals['AGENTS.md'].decode();new='''## 书籍与资料的存储约定（2026-11-06 用户确认）\n\n- 在本书籍/资料工作流中，用户交付材料并要求分析后，结构化成果默认保存到本Vault；用户明确说只预览时遵从当次边界。不能只保存到Codex工作目录。\n- Obsidian是正式内容源；通常由Claudian应用Wiki Skills整理维护。后续独立MCP供Codex/Hermes调用，接通情况必须以实际验证为准。\n- 书籍按独立目录保留原文、章节、概念与出处，写入遵循 '''+link(RULE)+'''。正式保存与draft/verified审校状态分开。\n\n'''
+  assert '## 关联规则' in agents;agents=agents.replace('## 关联规则',new+'## 关联规则',1);mem.atomic_write(VAULT/'AGENTS.md',agents);modified['AGENTS.md']=digest(VAULT/'AGENTS.md')
+  project=originals[str(PROJECT)].decode();line='- '+link(HUB)+' — 已归档全书60课、7个跨课概念与原书出处，作为佛法修学来源。\n'
+  assert '## 最近学习\n' in project;project=project.replace('## 最近学习\n','## 最近学习\n\n'+line,1);mem.atomic_write(VAULT/PROJECT,project);modified[str(PROJECT)]=digest(VAULT/PROJECT)
+  mem.append_log(VAULT,'INGEST',{'source':str(RAW/'lecture-full.pdf'),'book':str(HUB),'lesson_pages':60,'concept_pages':7,'knowledge_pages':68,'source_pdf_pages':457,'mode':'user-confirmed-formal-save','generated_by':'Codex/GPT-6-Luna-High','preferred_maintenance':'Claudian','mcp':'not-connected','source_sha256':HASH},timestamp=STAMP,lock=False)
+ cli='<LOCAL_HOME>/.local/bin/obsidian-wiki';registered=[str(p) for k,p in mapping.items() if k not in ['coverage.md']]
+ reg=subprocess.run([cli,'cache-update',str(VAULT),str(VAULT/RAW/'lecture-full.pdf'),'--pages',*registered],capture_output=True,text=True);assert reg.returncode==0,reg.stderr
+ before=json.loads(originals['.manifest.json']);after=json.loads((VAULT/'.manifest.json').read_text())
+ assert all(after['sources'].get(k)==val for k,val in before['sources'].items())
+ receipt={'vault':str(VAULT),'hub':str(HUB),'book_root':str(BOOK),'raw_root':str(RAW),'files_created':len(plan['files']),'knowledge_pages':68,'lessons':60,'concepts':7,'source_sha256':digest(VAULT/RAW/'lecture-full.pdf'),'backup':str(backup.relative_to(VAULT)),'prior_manifest_sources_preserved':True,'manifest_sources_before':len(before['sources']),'manifest_sources_after':len(after['sources']),'memory_update':'locked incremental additions; no global rebuild or memory migration','modified_files':modified,'created_paths':[x['path'] for x in plan['files']],'timestamp':STAMP}
+ (W/'receipt.json').write_text(json.dumps(receipt,ensure_ascii=False,indent=2));print(json.dumps({k:v for k,v in receipt.items() if k!='created_paths'},ensure_ascii=False,indent=2))

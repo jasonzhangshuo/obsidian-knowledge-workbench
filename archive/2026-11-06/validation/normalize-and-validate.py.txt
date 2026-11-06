@@ -1,0 +1,51 @@
+# Historical prototype; not a runnable entrypoint. See ../README.md.
+# Machine-specific home prefix replaced with <LOCAL_HOME>.
+from pathlib import Path
+import json,re,os,hashlib,sys
+from urllib.parse import unquote
+r=Path(__file__).resolve().parent;v=r/'vault'
+lessons=sorted((v/'references').glob('lesson-*.md'))
+assert len(lessons)==60, f'Not complete: {len(lessons)}'
+source_key='~/Documents/佛法修学/materials/入菩萨行论/lesson-011/source/lecture-full.pdf'
+check_only='--check-only' in sys.argv
+changes=json.loads((r/'evidence/normalization.json').read_text()) if check_only else []
+originals=r/'evidence/pre-normalization';originals.mkdir(exist_ok=True)
+for p in ([] if check_only else v.rglob('*.md')):
+ rel=p.relative_to(v)
+ if any(x.startswith('.') for x in rel.parts) or p.name=='AGENTS.md':continue
+ text=p.read_text();new=text
+ source_rel=os.path.relpath(r/'source',p.parent)
+ new=re.sub(r'\]\((?:\.\./)*source/',lambda m:']('+source_rel+'/',new)
+ # The book is the immutable origin; lesson text is a derived reading artifact.
+ if new.startswith('---\n'):
+  front,body=new[4:].split('\n---',1)
+  front=re.sub(r'^sources:[^\n]*(?:\n[ \t]+-[^\n]*)*',lambda m:'sources: '+json.dumps([source_key],ensure_ascii=False),front,flags=re.M)
+  front=re.sub(r'^category:[^\n]*',lambda m:'category: '+rel.parts[0],front,flags=re.M)
+  tier='core' if rel.parts[0]=='concepts' else 'supporting'
+  front=re.sub(r'^tier:[^\n]*',lambda m:'tier: '+tier,front,flags=re.M)
+  if not re.search(r'^# ',body,re.M):
+   tm=re.search(r'^title:\s*(?:>-\n[ \t]+([^\n]+)|([^\n]+))',front,re.M)
+   title=(tm[1] or tm[2]).strip().strip('"') if tm else p.stem
+   body='\n\n# '+title+'\n'+body
+  new='---\n'+front+'\n---'+body
+ if new!=text:
+  before=originals/rel;before.parent.mkdir(parents=True,exist_ok=True);before.write_text(text)
+  p.write_text(new)
+  changes.append({'path':str(rel),'before_sha256':hashlib.sha256(text.encode()).hexdigest(),'after_sha256':hashlib.sha256(new.encode()).hexdigest(),'operation':'repair relative source links; normalize immutable PDF source key'})
+if not check_only:(r/'evidence/normalization.json').write_text(json.dumps(changes,ensure_ascii=False,indent=2))
+allmd=[p for p in v.rglob('*.md') if not any(x.startswith('.') for x in p.relative_to(v).parts) and p.name!='AGENTS.md']
+stems={p.stem for p in allmd};broken_links=[];broken_wiki=[];draft_issues=[]
+for p in allmd:
+ s=p.read_text()
+ for raw in re.findall(r'\]\(([^)]+)\)',s):
+  t=raw.strip('<>')
+  if re.match(r'^[a-zA-Z]+:',t) or t.startswith('#'):continue
+  t=unquote(t.split('#')[0])
+  if t and not (p.parent/t).exists():broken_links.append({'file':str(p.relative_to(v)),'target':raw})
+ for raw in re.findall(r'\[\[([^\]]+)\]\]',s):
+  target=raw.split('|')[0].split('#')[0].removesuffix('.md')
+  if target and not (v/(target+'.md')).exists() and Path(target).name not in stems:broken_wiki.append({'file':str(p.relative_to(v)),'target':raw})
+ if p in lessons and not re.search(r'^lifecycle:\s*draft\s*$',s,re.M):draft_issues.append(str(p.relative_to(v)))
+report={'lesson_count':len(lessons),'concept_count':len(list((v/'concepts').glob('*.md'))),'all_preview_markdown_files':len(allmd),'normalized_files':len(changes),'broken_markdown_links':broken_links,'broken_wikilinks':broken_wiki,'non_draft_lessons':draft_issues,'source_key':source_key,'artifact_sha256':{str(p.relative_to(v)):hashlib.sha256(p.read_bytes()).hexdigest() for p in allmd}}
+(r/'evidence/structure-validation.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
+print(json.dumps({k:val for k,val in report.items() if k!='artifact_sha256'},ensure_ascii=False,indent=2))

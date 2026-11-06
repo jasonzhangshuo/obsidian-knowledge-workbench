@@ -1,0 +1,39 @@
+# Historical prototype; not a runnable entrypoint. See ../README.md.
+# Machine-specific home prefix replaced with <LOCAL_HOME>.
+from pathlib import Path
+import re,json
+r=Path(__file__).resolve().parent
+pages={int(p.stem[5:]):p.read_text() for p in (r/'source').glob('page-*.txt')}
+normal=lambda s:''.join(s.split())
+reads={i:[] for i in range(1,61)}
+for line in (r/'evidence/compile-events.jsonl').read_text().splitlines():
+ try: event=json.loads(line)
+ except Exception:continue
+ x=event.get('item',{})
+ if event.get('type')!='item.completed' or x.get('type')!='command_execution' or x.get('exit_code')!=0:continue
+ output=x.get('aggregated_output','')
+ for match in re.finditer(r'cat\s+\.\./source/lessons/lesson-(\d{3})\.md',x.get('command','')):
+  n=int(match.group(1));source=(r/f'source/lessons/lesson-{n:03}.md').read_text()
+  if source.strip() in output:reads[n].append(x.get('id'))
+checks=[];files=sorted((r/'vault/references').glob('lesson-*.md'))
+lesson_meta={x['lesson']:x for x in json.loads((r/'evidence/lessons.json').read_text())}
+point_counts={};page_range_issues=[]
+for p in files:
+ s=p.read_text();section=re.search(r'#{2,3}\s*(?:PDF\s*证据|页证据|原文证据)\s*\n(.*?)(?=\n#{2,3} |\Z)',s,re.S)
+ point_counts[p.name]=0
+ if not section:continue
+ for line in section.group(1).splitlines():
+  if not line.startswith('- '):continue
+  m=re.search(r'PDF物理页\s*(\d+)(?:[—–\-至、]\s*(\d+))?',line)
+  if not m:continue
+  pg=list(range(int(m[1]),int(m[2] or m[1])+1))
+  point_counts[p.name]+=1
+  meta=lesson_meta[int(p.stem[-3:])]
+  if any(n<meta['start_pdf_page'] or n>meta['end_pdf_page'] or n not in pages for n in pg):page_range_issues.append({'file':p.name,'pages':pg})
+  for quote in re.findall(r'“([^”]+)”',line):
+   if len(normal(quote))<4:continue
+   hits=[n for n,t in pages.items() if normal(quote) in normal(t)]
+   checks.append({'file':p.name,'claimed_pages':pg,'quote':quote,'matching_pages':hits,'valid_on_claimed_page':bool(set(hits)&set(pg))})
+report={'compiled_lessons':len(files),'full_read_verified_lessons':[n for n,ids in reads.items() if ids],'full_read_unverified_lessons':[n for n,ids in reads.items() if not ids],'evidence_point_counts':point_counts,'insufficient_evidence_points':[name for name,count in point_counts.items() if count<2],'page_range_issues':page_range_issues,'checked_quotes':len(checks),'quotes_valid_on_claimed_page':sum(x['valid_on_claimed_page'] for x in checks),'quote_failures':[x for x in checks if not x['valid_on_claimed_page']],'quote_checks':checks}
+(r/'evidence/preview-audit.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
+print(json.dumps({k:v for k,v in report.items() if k not in ['quote_checks','full_read_unverified_lessons','evidence_point_counts']},ensure_ascii=False,indent=2))

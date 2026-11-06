@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "validated_upstream_version": "2026.11.2",
+  "upstream_install_manager": "uv tool",
+  "global_setup_enabled": false,
+  "project_skills": [
+    "llm-wiki",
+    "wiki-ingest",
+    "wiki-query",
+    "wiki-lint",
+    "wiki-status",
+    "wiki-update",
+    "wiki-capture",
+    "wiki-research",
+    "wiki-synthesize",
+    "cross-linker",
+    "tag-taxonomy"
+  ],
+  "vault_skills_added": [
+    "llm-wiki",
+    "wiki-ingest",
+    "wiki-query"
+  ],
+  "skill_link_target": "<installed obsidian_wiki package>/_data/skills/<name>",
+  "knowledge_owner": "Obsidian Vault",
+  "daily_maintenance_entry": "Claudian",
+  "mcp_status": "not implemented or connected",
+  "runtime_configuration": "untracked local .env and existing app configuration"
+}

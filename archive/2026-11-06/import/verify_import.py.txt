@@ -1,0 +1,47 @@
+# Historical prototype; not a runnable entrypoint. See ../README.md.
+# Machine-specific home prefix replaced with <LOCAL_HOME>.
+from pathlib import Path
+import json,re,hashlib,sys,zipfile
+from datetime import datetime
+from zoneinfo import ZoneInfo
+w=Path(__file__).resolve().parent;r=json.loads((w/'receipt.json').read_text());v=Path(r['vault']);plan=json.loads((w/'plan.json').read_text());src=w.parents[1]/'outputs/入菩萨行论-整书Wiki验证/wiki'
+sys.path.insert(0,'<LOCAL_HOME>/.local/share/uv/tools/obsidian-wiki/lib/python3.12/site-packages');from obsidian_wiki import memory as mem
+stamp=r['timestamp']
+def digest(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+def original_tags(s):
+ m=re.search(r'^tags:[^\S\n]*(.*)$',s,re.M)
+ if not m:return []
+ if m[1].strip().startswith('['):return [x.strip().strip('\"\'') for x in m[1].strip()[1:-1].split(',') if x.strip()]
+ return re.findall(r'^\s+-\s+(.*)$',s[m.end():].split('\nsummary:',1)[0].split('\naliases:',1)[0],re.M)
+with mem.memory_lock(v):
+ for name in ['AGENTS.md','projects/成长实践IP/成长实践IP.md']:
+  p=v/name;s=p.read_text();s=re.sub(r'^updated:.*$',f'updated: {stamp}',s,count=1,flags=re.M);mem.atomic_write(p,s);r['modified_files'][name]=digest(p)
+ p=v/'index.md';s=p.read_text();s=re.sub(r'(最后更新：)[^\n]+',lambda m:m[1]+stamp,s,count=1);mem.atomic_write(p,s);r['modified_files']['index.md']=digest(p)
+ for old,new in plan['mapping'].items():
+  p=v/new;s=p.read_text()
+  if 'keywords: []' in s:
+   vals=original_tags((src/old).read_text());s=s.replace('keywords: []','keywords: '+json.dumps(vals,ensure_ascii=False),1);mem.atomic_write(p,s)
+(w/'receipt.json').write_text(json.dumps(r,ensure_ascii=False,indent=2))
+# Verify only the imported book and known root entry files. Never traverse unrelated/private folders.
+notes=list((v/r['book_root']).rglob('*.md'))+[v/plan['workflow']];bad=[];pdfpages=[]
+for p in notes:
+ s=p.read_text()
+ for raw in re.findall(r'\[\[([^\]]+)\]\]',s):
+  dest=raw.split('|')[0];part=dest.split('#')[0];q=v/part
+  paths=[q] if q.suffix else [Path(str(q)+'.md'),q]
+  if not any(a.exists() for a in paths):bad.append({'file':str(p.relative_to(v)),'target':raw})
+  m=re.search(r'#page=(\d+)',dest)
+  if m:pdfpages.append(int(m[1]))
+assert not bad,bad
+assert all(1<=x<=457 for x in pdfpages)
+assert digest(v/r['raw_root']/'lecture-full.pdf')==r['source_sha256']
+assert digest(v/r['raw_root']/'验证全记录.zip')==digest(w.parents[1]/'outputs/入菩萨行论-整书Wiki验证.zip')
+with zipfile.ZipFile(v/r['backup']) as z:
+ for name in ['index.md','hot.md','AGENTS.md','projects/成长实践IP/成长实践IP.md']:
+  old=z.read(name).decode().splitlines();new=(v/name).read_text().splitlines()
+  old=[x for x in old if not x.startswith('updated:') and '最后更新：' not in x]
+  cursor=iter(new);assert all(any(line==a for line in cursor) for a in old),f'original content changed: {name}'
+manifest=json.loads((v/'.manifest.json').read_text());key=r['raw_root']+'/lecture-full.pdf';assert key in manifest['sources']
+entry=manifest['sources'][key]
+result={'vault':str(v),'book_root':r['book_root'],'hub':r['hub'],'book_markdown_notes':len(notes)-1,'chapter_notes':len(list((v/r['book_root']/'章节').glob('*.md'))),'concept_notes':len(list((v/r['book_root']/'概念').glob('*.md'))),'broken_internal_links':bad,'pdf_page_links_checked':len(pdfpages),'original_pdf_hash_verified':True,'full_archive_hash_verified':True,'existing_root_content_preserved':True,'manifest_source_key':key,'manifest_entry':entry,'hot_words':len((v/'hot.md').read_text().split()),'scope':'only imported book and explicitly modified root files'}
+(w/'verification.json').write_text(json.dumps(result,ensure_ascii=False,indent=2));print(json.dumps({k:x for k,x in result.items() if k!='manifest_entry'},ensure_ascii=False,indent=2))

@@ -1,0 +1,25 @@
+# Historical prototype; not a runnable entrypoint. See ../README.md.
+# Machine-specific home prefix replaced with <LOCAL_HOME>.
+from pathlib import Path
+import json,shutil,datetime,re,os
+r=Path(__file__).resolve().parent;d=r.parents[1]/'outputs/入菩萨行论-整书Wiki验证'
+d.mkdir(parents=True,exist_ok=True)
+for sub in ['evidence']:
+ shutil.copytree(r/sub,d/sub,dirs_exist_ok=True)
+for p in (r/'vault').rglob('*'):
+ rel=p.relative_to(r/'vault')
+ if any(x.startswith('.') for x in rel.parts) or p.name=='AGENTS.md' or not p.is_file():continue
+ q=d/'wiki'/rel;q.parent.mkdir(parents=True,exist_ok=True)
+ if p.suffix=='.md':
+  text=p.read_text()
+  source_rel=os.path.relpath(d/'source',q.parent)
+  text=re.sub(r'\]\((?:\.\./)*source/',lambda m:']('+source_rel+'/',text)
+  q.write_text(text)
+ else:shutil.copy2(p,q)
+lessons=json.loads((r/'evidence/lessons.json').read_text());existing={int(p.stem[-3:]) for p in (r/'vault/references').glob('lesson-*.md')}
+rows=['# 整书验证处理进度','',f'更新时间：{datetime.datetime.now().astimezone().isoformat(timespec="seconds")}','',f'已保存 {len(existing)} / 60 课。独立查询和整体验收以最终报告为准。','','| 课次 | PDF物理页范围 | 逐课预览 |','|---:|---|---|']
+for x in lessons:
+ n=x['lesson'];link=f'[已保存](wiki/references/lesson-{n:03}.md)' if n in existing else '处理中'
+ rows.append(f'| {n} | {x["start_pdf_page"]}—{x["end_pdf_page"]} | {link} |')
+(d/'处理进度.md').write_text('\n'.join(rows)+'\n')
+print(json.dumps({'saved_lessons':len(existing),'saved_concepts':len(list((r/'vault/concepts').glob('*.md'))),'output_root':str(d)},ensure_ascii=False))

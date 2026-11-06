@@ -1,0 +1,20 @@
+# Historical prototype; not a runnable entrypoint. See ../README.md.
+# Machine-specific home prefix replaced with <LOCAL_HOME>.
+from pathlib import Path
+import json,re,sys
+r=Path(__file__).resolve().parent;v=r/'vault'
+input_name=sys.argv[1] if len(sys.argv)>1 else 'query-answers.json'
+output_name='final-query-audit.json' if input_name=='query-final-answers.json' else 'query-audit.json'
+data=json.loads((r/'evidence'/input_name).read_text());gold={x['id']:x for x in json.loads((r/'evidence/retrieval-tests-private-gold.json').read_text())}
+checks=[]
+for a in data['answers']:
+ quotes=[]
+ for x in a['evidence']:
+  p=r/f'source/page-{x["pdf_page"]:03}.txt';text=p.read_text() if p.exists() else ''
+  q=''.join(x['quote'].split())
+  quotes.append({'pdf_page':x['pdf_page'],'quote':x['quote'],'characters':len(q),'valid':bool(q) and q in ''.join(text.split())})
+ paths=[{'path':p,'exists':(v/p).is_file()} for p in a['wiki_pages']]
+ expected=gold[a['id']]
+ checks.append({'id':a['id'],'quoted_source_checks':quotes,'wiki_paths':paths,'expected_page_hit':bool(set(expected.get('expected_pages',[])+expected.get('accepted_alternate_pages',[]))&set(a['source_pages'])) if not expected.get('expected_refusal') else None,'expected_absence_handled':a['not_in_source'] if expected.get('expected_refusal') else None,'retrieval_modes':a['retrieval_modes']})
+report={'answer_count':len(data['answers']),'unique_ids':sorted({a['id'] for a in data['answers']}),'all_expected_ids':{a['id'] for a in data['answers']}==set(gold),'quoted_excerpts':sum(len(x['quoted_source_checks']) for x in checks),'valid_quoted_excerpts':sum(q['valid'] for x in checks for q in x['quoted_source_checks']),'quote_failures':[dict(id=x['id'],**q) for x in checks for q in x['quoted_source_checks'] if not q['valid']],'broken_wiki_paths':[dict(id=x['id'],**p) for x in checks for p in x['wiki_paths'] if not p['exists']],'checks':checks}
+(r/'evidence'/output_name).write_text(json.dumps(report,ensure_ascii=False,indent=2));print(json.dumps(report,ensure_ascii=False,indent=2))
