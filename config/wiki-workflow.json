@@ -24,6 +24,7 @@
   "skill_link_target": "<installed obsidian_wiki package>/_data/skills/<name>",
   "knowledge_owner": "Obsidian Vault",
   "daily_maintenance_entry": "Claudian",
-  "mcp_status": "not implemented or connected",
+  "mcp_status": "single-book read-only stdio implemented",
+  "mcp_entry": "tools/knowledge_mcp.py",
   "runtime_configuration": "untracked local .env and existing app configuration"
 }

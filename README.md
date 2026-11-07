@@ -12,12 +12,13 @@ GitHub 公开代码仓库：<https://github.com/jasonzhangshuo/obsidian-knowledg
 | Obsidian Vault | 原书、文章、结构化知识页、概念关联、出处、完整分析与验证记录 |
 | Codex 临时工作目录 | 单次开发或验证的中间文件，成果应回到前两处 |
 
-日常使用方式：**Claudian 按 Wiki Skills 整理维护 → Obsidian 持久保存 → 独立 MCP → Codex / Hermes 查询**。MCP 尚未实现或接通；本次已有成果由 Codex/Luna 验证生成后正式保存进 Vault，没有重复分析整本书。
+日常使用方式为 **Claudian 按 Wiki Skills 整理维护 → Obsidian 持久保存 → 独立 MCP → Codex / Hermes 查询**。只读 MCP 的首版开放《入菩萨行论》济群法师讲记。已有知识成果由 Codex/Luna 整理和验证后保存进 Vault。接入和验收方法见 [知识 MCP 运行说明](docs/engineering/knowledge-mcp.md)。
 
 ## 已维护的代码
 
 - `tools/pdf_extract.py`：本地文字层提取、逐页校验值、独立课标切分。无需模型，未实现 OCR。
 - `tools/book_wiki_audit.py`：限定一本书的链接、逐字引文、问答引用和实际全文读取证据检查；不会全库扫描。
+- `tools/book_search.py` 与 `tools/knowledge_mcp.py`：本书中文检索、原文回查及 stdio MCP 入口。
 - `prompts/`：供代理采用的编译与查询约束；这些文本本身不会启动模型或保存数据。
 - `config/wiki-workflow.json`：已验证上游版本、项目/Vault技能范围及维护归属；实际账号与本机路径配置仍不跟踪。
 - `tests/`：切分边界、原句数字/标点、拼接引文、整课读取证据和私密目录边界的回归测试。
@@ -25,12 +26,12 @@ GitHub 公开代码仓库：<https://github.com/jasonzhangshuo/obsidian-knowledg
 - `docs/engineering/`：架构、代码/资料边界、后续实施顺序。
 - `docs/development/`：本次验证结论与代码来源。
 
-运行工具使用 Python 3.9+ 标准库；PDF 提取额外依赖本机 `pdftotext`。`obsidian-wiki` 继续由原有 uv 安装管理，本项目不复制上游包，也不执行全局 setup。
+现有 PDF 提取和校验工具使用 Python 3.9+ 标准库，提取额外依赖本机 pdftotext。知识 MCP 使用 Python 3.12 和固定版本的依赖。obsidian-wiki 继续由原有 uv 安装管理。
 
 ## 本地命令
 
 ```bash
-python3 -m unittest discover -s tests -v
+.runtime/knowledge-mcp/venv312/bin/python -m unittest discover -s tests -v
 python3 tools/pdf_extract.py --help
 python3 tools/book_wiki_audit.py --help
 ```
