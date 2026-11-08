@@ -38,6 +38,8 @@ Obsidian Vault 是知识资产的主存储地：
 
 ## YouTube 学习模式
 
+当用户给出 YouTube 链接并要求获取字幕、学习或拆解视频时，读取 `skills/youtube-transcript/SKILL.md`。它说明如何调用 Chrome 扩展字幕入口，并沿用下面的证据规则。
+
 当用户在内置浏览器打开 YouTube 并展开“转写文稿”时，可以读取视频转写内容，用于：
 
 - 视频地图和章节梳理；
