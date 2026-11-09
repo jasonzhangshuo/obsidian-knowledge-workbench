@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -99,6 +100,58 @@ class ReceiptTests(unittest.TestCase):
             result=vr.inspect_video(self.card['url'])
         self.assertEqual(result['video']['id'],'AdKUJxjn-R8')
         self.assertEqual(result['comments']['status'],'unavailable')
+
+
+class CliIntegrationTests(unittest.TestCase):
+    """Exercise the installed CLI contract with synthetic, isolated state only."""
+    setUp = ReceiptTests.setUp
+    tearDown = ReceiptTests.tearDown
+
+    def cli(self, *args, expected=0):
+        result = subprocess.run(
+            [sys.executable, str(Path(vr.__file__).resolve()), *map(str, args)],
+            capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, expected, result.stderr)
+        return json.loads(result.stdout if expected == 0 else result.stderr)
+
+    def test_cli_pipeline_reopen_and_dedup_preserve_state(self):
+        db_path = self.path / 'state.sqlite'
+        self.cli('begin', '--db', db_path, '--day', '2026-11-08')
+        evidence = self.path / 'evidence.json'
+        evidence.write_text(json.dumps([{
+            'id': 'synthetic-note', 'origin': 'synthetic-book', 'source': 'weread',
+            'kind': 'reflection', 'occurred_at': datetime.now(timezone.utc).isoformat(),
+            'topics': ['synthetic-question']}]))
+        self.assertEqual(self.cli('rank', evidence)[0]['topic'], 'synthetic-question')
+        candidates = self.path / 'candidates.json'
+        candidates.write_text(json.dumps([{
+            'url': self.card['url'], 'transcript_status': 'complete',
+            'score_evidence': ['synthetic cue 0'],
+            'scores': dict.fromkeys(('relevance', 'novelty', 'substance', 'time_value'), 4)}]))
+        self.assertEqual(self.cli('select', candidates, '--db', db_path)['url'], self.card['url'])
+        card = self.path / 'card.json'
+        card.write_text(json.dumps(self.card))
+        result = self.cli('finish', '--db', db_path, '--day', '2026-11-08', '--card', card)
+        self.assertEqual(result['state'], 'prepared')
+        before = db_path.read_bytes()
+        self.assertEqual(self.cli('status', '--db', db_path), [result])
+        self.assertIsNone(self.cli('select', candidates, '--db', db_path))
+        self.assertEqual(before, db_path.read_bytes())
+        self.cli('begin', '--db', db_path, '--day', '2026-11-08', expected=1)
+        self.cli('begin', '--db', db_path, '--day', '2026-11-09')
+        self.cli('finish', '--db', db_path, '--day', '2026-11-09', '--card', card, expected=1)
+        rows = self.cli('status', '--db', db_path)
+        self.assertEqual([row['state'] for row in rows], ['running', 'prepared'])
+
+    def test_failure_is_not_delivery_and_cannot_be_automatically_reclaimed(self):
+        db_path = self.path / 'state.sqlite'
+        self.cli('begin', '--db', db_path, '--day', '2026-11-08')
+        self.assertEqual(self.cli('fail', '--db', db_path, '--day', '2026-11-08',
+                                  '--reason', 'synthetic failure'), {'updated': 1})
+        self.assertEqual(self.cli('status', '--db', db_path), [
+            {'day': '2026-11-08', 'state': 'failed', 'video_id': None}])
+        self.cli('begin', '--db', db_path, '--day', '2026-11-08', expected=1)
+        self.cli('begin', '--db', db_path, '--day', '2026-11-09')
 
 
 if __name__ == '__main__': unittest.main()

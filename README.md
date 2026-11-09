@@ -20,7 +20,7 @@ GitHub 公开代码仓库：<https://github.com/jasonzhangshuo/obsidian-knowledg
 - `tools/book_wiki_audit.py`：限定一本书的链接、逐字引文、问答引用和实际全文读取证据检查；不会全库扫描。
 - `tools/book_search.py` 与 `tools/knowledge_mcp.py`：本书中文检索、原文回查及 stdio MCP 入口。
 - `tools/youtube_transcript.py` 与 `skills/youtube-transcript/`：Codex 和 Claudian 共用的 Chrome 字幕入口。安装和验证见 [YouTube 字幕接入](docs/engineering/youtube-transcript.md)。
-- `tools/video_recommendation.py` 与 `skills/daily-video-recommendation/`：近期问题证据评分、字幕评审和每日去重；运行边界见 [每日视频推荐](docs/engineering/video-recommendation.md)。
+- `tools/video_recommendation.py` 与 `skills/daily-video-recommendation/`：开放问题优先、近期证据评分、字幕评审和每日去重；运行入口与送达边界见 [每日视频推荐](docs/engineering/video-recommendation.md)。
 - `prompts/`：供代理采用的编译与查询约束；这些文本本身不会启动模型或保存数据。
 - `config/wiki-workflow.json`：已验证上游版本、项目/Vault技能范围及维护归属；实际账号与本机路径配置仍不跟踪。
 - `tests/`：切分边界、原句数字/标点、拼接引文、整课读取证据和私密目录边界的回归测试。
